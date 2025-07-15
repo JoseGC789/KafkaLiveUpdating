@@ -39,9 +39,6 @@ public class EventStatusController {
    */
   @PostMapping("/status")
   public ResponseEntity<Void> updateEventStatus(@Valid @RequestBody EventStatusRequest request) {
-    log.info(
-        "Received status update for eventId={} with status %s %s"
-            .formatted(request.getEventId(), request.isStatus()));
     eventStatusService.updateEventStatus(request);
     return ResponseEntity.ok().build();
   }

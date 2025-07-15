@@ -66,7 +66,7 @@ class EventStatusServiceTest {
   }
 
   @Test
-  void testFetchAndPublishScore_successful() {
+  void testFetchAndPublishScoreJustOnce_successful() {
     String eventId = "match-3";
     String expectedMessage = "{\"eventId\":\"match-3\", \"score\":\"2:1\"}";
 
@@ -90,7 +90,7 @@ class EventStatusServiceTest {
     eventStatusService.fetchAndPublishScore(eventId); // Call manually
 
     // Assert
-    verify(kafkaTemplate, times(2)).send(eq("event-scores"), eq(expectedMessage));
+    verify(kafkaTemplate, times(1)).send(eq("event-scores"), eq(expectedMessage));
   }
 
   @Test

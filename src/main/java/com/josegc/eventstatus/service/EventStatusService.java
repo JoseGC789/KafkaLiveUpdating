@@ -66,30 +66,43 @@ public class EventStatusService {
    * @param request the event status request containing the event ID and status
    */
   public void updateEventStatus(EventStatusRequest request) {
+    log.info(
+        "Received status update for eventId={} with status %s %s"
+            .formatted(request.getEventId(), request.isStatus()));
+    log.info(
+        "Current size is %s with %s".formatted(eventStatusMap.size(), eventStatusMap.keySet()));
+
     String eventId = request.getEventId();
 
     if (request.isStatus()) {
-      pushTask(eventId);
+      compareAndPutTask(eventId);
       return;
     }
 
-    if (!eventStatusMap.containsKey(eventId)) {
-      return;
-    }
-
-    popTask(eventId);
+    compareAndRemoveTask(eventId);
   }
 
-  private void popTask(String eventId) {
-    ScheduledFuture<?> task = eventStatusMap.get(eventId);
-    log.info(String.format("Cancelling %s %s %s", eventId, task, task.cancel(true)));
-    eventStatusMap.remove(eventId);
+  private void compareAndRemoveTask(String eventId) {
+    eventStatusMap.computeIfPresent(
+        eventId,
+        (id, task) -> {
+          log.info(
+              String.format(
+                  "Cancelling compareAndRemoveTask %s %s %s", eventId, task, task.cancel(true)));
+          return null;
+        });
   }
 
-  private void pushTask(String eventId) {
-    ScheduledFuture<?> scheduledFuture =
-        scheduler.scheduleAtFixedRate(() -> fetchAndPublishScore(eventId), Duration.ofSeconds(10));
-    eventStatusMap.put(eventId, scheduledFuture);
+  private void compareAndPutTask(String eventId) {
+    eventStatusMap.computeIfAbsent(
+        eventId,
+        (id) -> {
+          ScheduledFuture<?> scheduledFuture =
+              scheduler.scheduleAtFixedRate(
+                  () -> fetchAndPublishScore(eventId), Duration.ofSeconds(10));
+          log.info(String.format("Starting compareAndPutTask %s", eventId));
+          return scheduledFuture;
+        });
   }
 
   /**
@@ -104,7 +117,6 @@ public class EventStatusService {
    * @param eventId the ID of the event to poll and publish
    */
   void fetchAndPublishScore(String eventId) {
-    log.info("fetchAndPublishScore");
     if (!eventStatusMap.containsKey(eventId)) {
       return;
     }
@@ -147,7 +159,6 @@ public class EventStatusService {
   private String pollScore(String eventId) {
     Map<String, String> rs = externalService.update(eventId);
     String score = rs.get("currentScore");
-    String message = String.format("{\"eventId\":\"%s\", \"score\":\"%s\"}", eventId, score);
-    return message;
+    return String.format("{\"eventId\":\"%s\", \"score\":\"%s\"}", eventId, score);
   }
 }
