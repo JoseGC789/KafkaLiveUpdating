@@ -69,10 +69,7 @@ public class EventStatusService {
     String eventId = request.getEventId();
 
     if (request.isStatus()) {
-      ScheduledFuture<?> scheduledFuture =
-          scheduler.scheduleAtFixedRate(
-              () -> fetchAndPublishScore(eventId), Duration.ofSeconds(10));
-      eventStatusMap.put(eventId, scheduledFuture);
+      pushTask(eventId);
       return;
     }
 
@@ -80,9 +77,19 @@ public class EventStatusService {
       return;
     }
 
+    popTask(eventId);
+  }
+
+  private void popTask(String eventId) {
     ScheduledFuture<?> task = eventStatusMap.get(eventId);
     log.info(String.format("Cancelling %s %s %s", eventId, task, task.cancel(true)));
     eventStatusMap.remove(eventId);
+  }
+
+  private void pushTask(String eventId) {
+    ScheduledFuture<?> scheduledFuture =
+        scheduler.scheduleAtFixedRate(() -> fetchAndPublishScore(eventId), Duration.ofSeconds(10));
+    eventStatusMap.put(eventId, scheduledFuture);
   }
 
   /**
@@ -103,32 +110,44 @@ public class EventStatusService {
     }
 
     try {
-      Map<String, String> rs = externalService.update(eventId);
-      String score = rs.get("currentScore");
-      String message = String.format("{\"eventId\":\"%s\", \"score\":\"%s\"}", eventId, score);
-      log.info("Publishing to kafka");
-
-      CompletableFuture<SendResult<String, String>> future =
-          kafkaTemplate.send("event-scores", message);
-
-      future.whenComplete(
-          (result, ex) -> {
-            if (ex != null) {
-              log.error("Failed to publish to Kafka for eventId=" + eventId + ex);
-              future.completeExceptionally(ex);
-            } else {
-              log.info(
-                  "Successfully published to Kafka topic={%s} partition={%d} offset={%d} for eventId={%s}"
-                      .formatted(
-                          result.getRecordMetadata().topic(),
-                          result.getRecordMetadata().partition(),
-                          result.getRecordMetadata().offset(),
-                          eventId));
-              future.complete(result);
-            }
-          });
+      String message = pollScore(eventId);
+      pushToKafka(eventId, message);
     } catch (Exception e) {
       log.error("Error during fetchAndPublishScore for eventId=" + eventId + e.getMessage());
     }
+  }
+
+  private void pushToKafka(String eventId, String message) {
+    log.info("Publishing to kafka");
+    CompletableFuture<SendResult<String, String>> future =
+        kafkaTemplate.send("event-scores", message);
+    future.whenComplete((result, ex) -> kafkaCallback(eventId, result, ex, future));
+  }
+
+  private static void kafkaCallback(
+      String eventId,
+      SendResult<String, String> result,
+      Throwable ex,
+      CompletableFuture<SendResult<String, String>> future) {
+    if (ex != null) {
+      log.error("Failed to publish to Kafka for eventId=" + eventId + ex);
+      future.completeExceptionally(ex);
+    } else {
+      log.info(
+          "Successfully published to Kafka topic={%s} partition={%d} offset={%d} for eventId={%s}"
+              .formatted(
+                  result.getRecordMetadata().topic(),
+                  result.getRecordMetadata().partition(),
+                  result.getRecordMetadata().offset(),
+                  eventId));
+      future.complete(result);
+    }
+  }
+
+  private String pollScore(String eventId) {
+    Map<String, String> rs = externalService.update(eventId);
+    String score = rs.get("currentScore");
+    String message = String.format("{\"eventId\":\"%s\", \"score\":\"%s\"}", eventId, score);
+    return message;
   }
 }
