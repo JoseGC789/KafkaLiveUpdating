@@ -1,0 +1,9 @@
+## Run everything
+docker-compose up --build
+docker-compose down
+
+## Run separate
+docker-compose -f docker-compose-no-app.yml
+mvn clean package
+java -jar .\target\event-status-service-0.0.1-SNAPSHOT.jar
+docker-compose down
