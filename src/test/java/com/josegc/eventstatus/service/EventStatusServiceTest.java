@@ -2,6 +2,9 @@ package com.josegc.eventstatus.service;
 
 import com.josegc.eventstatus.client.ExternalService;
 import com.josegc.eventstatus.model.EventStatusRequest;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledFuture;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -11,9 +14,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledFuture;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -33,10 +33,11 @@ class EventStatusServiceTest {
 
   @Mock private ExternalService externalService;
 
-  @InjectMocks private EventStatusService eventStatusService;
+  private EventStatusService eventStatusService;
 
   @BeforeEach
   void setup() {
+    eventStatusService = new EventStatusService(1, kafkaTemplate, externalService);
     eventStatusService.init(); // Initializes scheduler
   }
 

@@ -2,6 +2,7 @@
 FROM maven:3.8.3-openjdk-17 AS build
 WORKDIR /home/app
 COPY pom.xml .
+COPY lombok.config .
 COPY src ./src
 RUN mvn clean package
 

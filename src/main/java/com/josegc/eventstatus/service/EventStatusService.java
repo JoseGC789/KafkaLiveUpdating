@@ -3,19 +3,19 @@ package com.josegc.eventstatus.service;
 import com.josegc.eventstatus.client.ExternalService;
 import com.josegc.eventstatus.model.EventStatusRequest;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.support.SendResult;
-import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
-import org.springframework.stereotype.Service;
-
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.stereotype.Service;
 
 /**
  * Service responsible for managing live event statuses, scheduling polling jobs for live events,
@@ -37,6 +37,10 @@ public class EventStatusService {
 
   /** A concurrent map that holds active scheduled polling tasks for each event by ID. */
   final Map<String, ScheduledFuture<?>> eventStatusMap = new ConcurrentHashMap<>();
+
+  /** Time between polling tasks */
+  @Value("${app.EventStatusService.ScheduledFuture.fixedRate:10000}")
+  private final int seconds;
 
   /** KafkaTemplate used to publish score updates to Kafka. */
   private final KafkaTemplate<String, String> kafkaTemplate;
@@ -67,14 +71,14 @@ public class EventStatusService {
    */
   public void updateEventStatus(EventStatusRequest request) {
     log.info(
-        "Received status update for eventId={} with status %s %s"
-            .formatted(request.getEventId(), request.isStatus()));
-    log.info(
-        "Current size is %s with %s".formatted(eventStatusMap.size(), eventStatusMap.keySet()));
+        "Received status update for eventId {} with status {}",
+        request.eventId(),
+        request.status());
+    log.info("Current size is {} with {}", eventStatusMap.size(), eventStatusMap.keySet());
 
-    String eventId = request.getEventId();
+    String eventId = request.eventId();
 
-    if (request.isStatus()) {
+    if (request.status()) {
       compareAndPutTask(eventId);
       return;
     }
@@ -86,9 +90,7 @@ public class EventStatusService {
     eventStatusMap.computeIfPresent(
         eventId,
         (id, task) -> {
-          log.info(
-              String.format(
-                  "Cancelling compareAndRemoveTask %s %s %s", eventId, task, task.cancel(true)));
+          log.info("Cancelling compareAndRemoveTask {} {} {}", eventId, task, task.cancel(true));
           return null;
         });
   }
@@ -96,11 +98,11 @@ public class EventStatusService {
   private void compareAndPutTask(String eventId) {
     eventStatusMap.computeIfAbsent(
         eventId,
-        (id) -> {
-          ScheduledFuture<?> scheduledFuture =
+        id -> {
+          var scheduledFuture =
               scheduler.scheduleAtFixedRate(
-                  () -> fetchAndPublishScore(eventId), Duration.ofSeconds(10));
-          log.info(String.format("Starting compareAndPutTask %s", eventId));
+                  () -> fetchAndPublishScore(eventId), Duration.ofMillis(seconds));
+          log.info("Starting compareAndPutTask {}", eventId);
           return scheduledFuture;
         });
   }
@@ -125,7 +127,7 @@ public class EventStatusService {
       String message = pollScore(eventId);
       pushToKafka(eventId, message);
     } catch (Exception e) {
-      log.error("Error during fetchAndPublishScore for eventId=" + eventId + e.getMessage());
+      log.error("Error during fetchAndPublishScore for eventId={} {}", eventId, e.getMessage());
     }
   }
 
@@ -142,16 +144,15 @@ public class EventStatusService {
       Throwable ex,
       CompletableFuture<SendResult<String, String>> future) {
     if (ex != null) {
-      log.error("Failed to publish to Kafka for eventId=" + eventId + ex);
+      log.error("Failed to publish to Kafka for eventId={} {}", eventId, ex.toString());
       future.completeExceptionally(ex);
     } else {
       log.info(
-          "Successfully published to Kafka topic={%s} partition={%d} offset={%d} for eventId={%s}"
-              .formatted(
-                  result.getRecordMetadata().topic(),
-                  result.getRecordMetadata().partition(),
-                  result.getRecordMetadata().offset(),
-                  eventId));
+          "Successfully published to Kafka topic={} partition={} offset={} for eventId={}",
+          result.getRecordMetadata().topic(),
+          result.getRecordMetadata().partition(),
+          result.getRecordMetadata().offset(),
+          eventId);
       future.complete(result);
     }
   }

@@ -1,8 +1,8 @@
 package com.josegc.eventstatus.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.josegc.eventstatus.client.ExternalService;
 import com.josegc.eventstatus.model.EventStatusRequest;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -15,11 +15,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -29,8 +30,6 @@ class EventStatusIntegrationTest {
 
   @Autowired private WebApplicationContext context;
 
-  private MockMvc mockMvc;
-
   @Autowired private ObjectMapper objectMapper;
 
   @MockitoBean private KafkaTemplate<String, String> kafkaTemplate;
@@ -38,10 +37,9 @@ class EventStatusIntegrationTest {
   @Test
   void shouldSchedulePollingAndPublishToKafka() throws Exception {
     // Arrange
-    mockMvc = MockMvcBuilders.webAppContextSetup(context).build();
+    MockMvc mockMvc = MockMvcBuilders.webAppContextSetup(context).build();
 
     String eventId = "test-event-001";
-
 
     CompletableFuture<SendResult<String, String>> future =
         CompletableFuture.completedFuture(mock(SendResult.class));
@@ -56,7 +54,7 @@ class EventStatusIntegrationTest {
         .andExpect(status().isOk());
 
     // Wait for the scheduled job to trigger
-    Thread.sleep(11_000);
+    Thread.sleep(500);
 
     verify(kafkaTemplate, atLeastOnce()).send(eq("event-scores"), contains(eventId));
   }
